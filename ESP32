@@ -1,0 +1,535 @@
+#include <ESP32Servo.h>
+
+
+// =====================================================
+// 4 BTS7960
+// =====================================================
+
+// Motor 1 - trước trái
+#define M1_RPWM 25
+#define M1_LPWM 26
+
+// Motor 2 - trước phải
+#define M2_RPWM 32
+#define M2_LPWM 33
+
+// Motor 3 - sau trái
+#define M3_RPWM 18
+#define M3_LPWM 19
+
+// Motor 4 - sau phải
+#define M4_RPWM 21
+#define M4_LPWM 22
+
+
+#define PWM_FREQ 15000
+#define PWM_RES 8
+#define MAX_SPEED 220
+
+
+// =====================================================
+// SERVO
+// =====================================================
+
+#define SERVO_COLLECT_PIN 17
+#define SERVO_FEED_PIN 4
+#define SERVO_X_PIN 16
+
+Servo servoCollect;
+Servo servoFeed;
+Servo servoX;
+
+
+// =====================================================
+// UART RASPBERRY PI
+// =====================================================
+
+#define PI_RX 27
+#define PI_TX 14
+
+HardwareSerial PiSerial(2);
+
+
+// =====================================================
+// AN TOÀN
+// =====================================================
+
+unsigned long lastCommand = 0;
+
+const unsigned long TIMEOUT = 1000;
+
+
+// =====================================================
+// ĐIỀU KHIỂN MOTOR
+// =====================================================
+
+void motor(
+  int rpwm,
+  int lpwm,
+  int speed
+)
+{
+  speed = constrain(
+    speed,
+    -MAX_SPEED,
+    MAX_SPEED
+  );
+
+  if (speed > 0)
+  {
+    ledcWrite(
+      rpwm,
+      speed
+    );
+
+    ledcWrite(
+      lpwm,
+      0
+    );
+  }
+
+  else if (speed < 0)
+  {
+    ledcWrite(
+      rpwm,
+      0
+    );
+
+    ledcWrite(
+      lpwm,
+      -speed
+    );
+  }
+
+  else
+  {
+    ledcWrite(
+      rpwm,
+      0
+    );
+
+    ledcWrite(
+      lpwm,
+      0
+    );
+  }
+}
+
+
+// =====================================================
+// DỪNG ROBOT
+// =====================================================
+
+void stopRobot()
+{
+  motor(M1_RPWM, M1_LPWM, 0);
+  motor(M2_RPWM, M2_LPWM, 0);
+  motor(M3_RPWM, M3_LPWM, 0);
+  motor(M4_RPWM, M4_LPWM, 0);
+}
+
+
+// =====================================================
+// TIẾN
+// =====================================================
+
+void forwardRobot(int speed)
+{
+  motor(M1_RPWM, M1_LPWM, speed);
+  motor(M2_RPWM, M2_LPWM, speed);
+  motor(M3_RPWM, M3_LPWM, speed);
+  motor(M4_RPWM, M4_LPWM, speed);
+}
+
+
+// =====================================================
+// LÙI
+// =====================================================
+
+void backwardRobot(int speed)
+{
+  forwardRobot(-speed);
+}
+
+
+// =====================================================
+// QUAY TRÁI
+// =====================================================
+
+void leftRobot(int speed)
+{
+  motor(M1_RPWM, M1_LPWM, -speed);
+  motor(M2_RPWM, M2_LPWM, speed);
+  motor(M3_RPWM, M3_LPWM, -speed);
+  motor(M4_RPWM, M4_LPWM, speed);
+}
+
+
+// =====================================================
+// QUAY PHẢI
+// =====================================================
+
+void rightRobot(int speed)
+{
+  motor(M1_RPWM, M1_LPWM, speed);
+  motor(M2_RPWM, M2_LPWM, -speed);
+  motor(M3_RPWM, M3_LPWM, speed);
+  motor(M4_RPWM, M4_LPWM, -speed);
+}
+
+
+// =====================================================
+// XỬ LÝ LỆNH TỪ RASPBERRY PI
+// =====================================================
+
+void processCommand(String cmd)
+{
+  cmd.trim();
+
+  cmd.toUpperCase();
+
+  lastCommand = millis();
+
+  Serial.print(
+    "PI -> "
+  );
+
+  Serial.println(cmd);
+
+
+  // STOP
+
+  if (cmd == "STOP")
+  {
+    stopRobot();
+
+    return;
+  }
+
+
+  // TIẾN
+
+  if (cmd.startsWith("F"))
+  {
+    int speed =
+      cmd.substring(1).toInt();
+
+    speed = constrain(
+      speed,
+      0,
+      MAX_SPEED
+    );
+
+    forwardRobot(speed);
+
+    return;
+  }
+
+
+  // LÙI
+
+  if (cmd.startsWith("B"))
+  {
+    int speed =
+      cmd.substring(1).toInt();
+
+    speed = constrain(
+      speed,
+      0,
+      MAX_SPEED
+    );
+
+    backwardRobot(speed);
+
+    return;
+  }
+
+
+  // TRÁI
+
+  if (cmd.startsWith("L"))
+  {
+    int speed =
+      cmd.substring(1).toInt();
+
+    speed = constrain(
+      speed,
+      0,
+      MAX_SPEED
+    );
+
+    leftRobot(speed);
+
+    return;
+  }
+
+
+  // PHẢI
+
+  if (cmd.startsWith("R"))
+  {
+    int speed =
+      cmd.substring(1).toInt();
+
+    speed = constrain(
+      speed,
+      0,
+      MAX_SPEED
+    );
+
+    rightRobot(speed);
+
+    return;
+  }
+
+
+  // THU BÓNG
+
+  if (cmd == "COLLECT")
+  {
+    servoCollect.write(120);
+
+    return;
+  }
+
+
+  // DỪNG THU
+
+  if (cmd == "COLLECT_STOP")
+  {
+    servoCollect.write(90);
+
+    return;
+  }
+
+
+  // CẤP BÓNG
+
+  if (cmd == "FEED")
+  {
+    servoFeed.write(120);
+
+    delay(300);
+
+    servoFeed.write(0);
+
+    return;
+  }
+
+
+  // SERVO X
+
+  if (cmd == "X180")
+  {
+    servoX.write(180);
+
+    return;
+  }
+
+
+  if (cmd == "X0")
+  {
+    servoX.write(0);
+
+    return;
+  }
+
+
+  // BẮN BÓNG
+  // Chưa gán motor flywheel
+
+  if (cmd == "SHOOT")
+  {
+    Serial.println(
+      "SHOOT"
+    );
+
+    return;
+  }
+
+
+  if (cmd == "SHOOT_STOP")
+  {
+    Serial.println(
+      "SHOOT STOP"
+    );
+
+    return;
+  }
+}
+
+
+// =====================================================
+// SETUP
+// =====================================================
+
+void setup()
+{
+  Serial.begin(
+    115200
+  );
+
+
+  // PWM MOTOR
+
+  ledcAttach(
+    M1_RPWM,
+    PWM_FREQ,
+    PWM_RES
+  );
+
+  ledcAttach(
+    M1_LPWM,
+    PWM_FREQ,
+    PWM_RES
+  );
+
+  ledcAttach(
+    M2_RPWM,
+    PWM_FREQ,
+    PWM_RES
+  );
+
+  ledcAttach(
+    M2_LPWM,
+    PWM_FREQ,
+    PWM_RES
+  );
+
+  ledcAttach(
+    M3_RPWM,
+    PWM_FREQ,
+    PWM_RES
+  );
+
+  ledcAttach(
+    M3_LPWM,
+    PWM_FREQ,
+    PWM_RES
+  );
+
+  ledcAttach(
+    M4_RPWM,
+    PWM_FREQ,
+    PWM_RES
+  );
+
+  ledcAttach(
+    M4_LPWM,
+    PWM_FREQ,
+    PWM_RES
+  );
+
+
+  stopRobot();
+
+
+  // SERVO
+
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
+  ESP32PWM::allocateTimer(2);
+  ESP32PWM::allocateTimer(3);
+
+
+  servoCollect.setPeriodHertz(50);
+
+  servoCollect.attach(
+    SERVO_COLLECT_PIN,
+    500,
+    2400
+  );
+
+  servoCollect.write(90);
+
+
+  servoFeed.setPeriodHertz(50);
+
+  servoFeed.attach(
+    SERVO_FEED_PIN,
+    500,
+    2400
+  );
+
+  servoFeed.write(0);
+
+
+  servoX.setPeriodHertz(50);
+
+  servoX.attach(
+    SERVO_X_PIN,
+    500,
+    2400
+  );
+
+  servoX.write(180);
+
+
+  // UART
+
+  PiSerial.begin(
+    115200,
+    SERIAL_8N1,
+    PI_RX,
+    PI_TX
+  );
+
+
+  lastCommand = millis();
+
+
+  Serial.println(
+    "=============================="
+  );
+
+  Serial.println(
+    " PICKLEBOT ESP32 AUTO"
+  );
+
+  Serial.println(
+    " 4 BTS7960"
+  );
+
+  Serial.println(
+    " UART RASPBERRY"
+  );
+
+  Serial.println(
+    "=============================="
+  );
+}
+
+
+// =====================================================
+// LOOP
+// =====================================================
+
+void loop()
+{
+  if (PiSerial.available())
+  {
+    String command =
+      PiSerial.readStringUntil(
+        '\n'
+      );
+
+    processCommand(
+      command
+    );
+  }
+
+
+  // Nếu Raspberry Pi mất liên lạc
+  // robot tự động dừng
+
+  if (
+    millis() - lastCommand
+    > TIMEOUT
+  )
+  {
+    stopRobot();
+  }
+
+
+  delay(5);
+}
